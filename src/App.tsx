@@ -4,10 +4,11 @@ import { Scanner } from './components/Scanner';
 import { ShareForm } from './components/ShareForm';
 import { DecryptedViewer } from './components/DecryptedViewer';
 import { VaultHistory } from './components/VaultHistory';
+import { AboutView } from './components/AboutView';
 import { SecurityAuditorModal } from './components/SecurityAuditorModal';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'scan' | 'generate' | 'vault'>('generate');
+  const [activeTab, setActiveTab] = useState<'scan' | 'generate' | 'vault' | 'about'>('generate');
   const [scannedUrl, setScannedUrl] = useState<string | null>(null);
   const [isAuditModalOpen, setIsAuditModalOpen] = useState<boolean>(false);
 
@@ -79,6 +80,10 @@ export default function App() {
                   setScannedUrl(shareUrl);
                 }}
               />
+            )}
+
+            {activeTab === 'about' && (
+              <AboutView />
             )}
           </>
         )}

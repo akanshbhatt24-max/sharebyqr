@@ -1,9 +1,9 @@
 import React from 'react';
-import { ShieldCheck, QrCode, Scan, History, Lock, Info } from 'lucide-react';
+import { ShieldCheck, QrCode, Scan, History, Lock, Info, GraduationCap } from 'lucide-react';
 
 interface HeaderProps {
-  activeTab: 'scan' | 'generate' | 'vault';
-  setActiveTab: (tab: 'scan' | 'generate' | 'vault') => void;
+  activeTab: 'scan' | 'generate' | 'vault' | 'about';
+  setActiveTab: (tab: 'scan' | 'generate' | 'vault' | 'about') => void;
   onOpenAuditModal: () => void;
 }
 
@@ -43,41 +43,53 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('generate')}
-            className={`flex items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs sm:text-sm font-semibold transition-all duration-200 ${
+            className={`flex items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs sm:text-sm font-semibold transition-all duration-200 cursor-pointer ${
               activeTab === 'generate'
                 ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm shadow-cyan-500/20'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
             }`}
           >
             <QrCode className="h-4 w-4" />
-            <span>Create & Share</span>
+            <span>Create</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('scan')}
-            className={`flex items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs sm:text-sm font-semibold transition-all duration-200 ${
+            className={`flex items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs sm:text-sm font-semibold transition-all duration-200 cursor-pointer ${
               activeTab === 'scan'
                 ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-sm shadow-indigo-500/20'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
             }`}
           >
             <Scan className="h-4 w-4" />
-            <span>Scan QR</span>
+            <span>Scan</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('vault')}
-            className={`flex items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs sm:text-sm font-semibold transition-all duration-200 ${
+            className={`flex items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs sm:text-sm font-semibold transition-all duration-200 cursor-pointer ${
               activeTab === 'vault'
                 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm shadow-emerald-500/20'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
             }`}
           >
             <History className="h-4 w-4" />
-            <span className="hidden sm:inline">Vault & History</span>
-            <span className="sm:hidden">Vault</span>
+            <span>Vault</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('about')}
+            className={`flex items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs sm:text-sm font-semibold transition-all duration-200 cursor-pointer ${
+              activeTab === 'about'
+                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm shadow-amber-500/20'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+            }`}
+          >
+            <GraduationCap className="h-4 w-4" />
+            <span>About App</span>
           </button>
         </nav>
 
@@ -85,7 +97,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           onClick={onOpenAuditModal}
           title="Security & Crypto Specs"
-          className="flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900/90 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:border-slate-700 hover:bg-slate-800 transition duration-200 shadow-sm"
+          className="flex items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900/90 px-3 py-1.5 text-xs font-semibold text-slate-300 hover:border-slate-700 hover:bg-slate-800 transition duration-200 shadow-sm cursor-pointer"
         >
           <ShieldCheck className="h-4 w-4 text-emerald-400" />
           <span className="hidden md:inline">Security Specs</span>
