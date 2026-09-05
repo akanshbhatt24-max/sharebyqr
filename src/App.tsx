@@ -7,7 +7,7 @@ import { VaultHistory } from './components/VaultHistory';
 import { SecurityAuditorModal } from './components/SecurityAuditorModal';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'scan' | 'generate' | 'vault'>('scan');
+  const [activeTab, setActiveTab] = useState<'scan' | 'generate' | 'vault'>('generate');
   const [scannedUrl, setScannedUrl] = useState<string | null>(null);
   const [isAuditModalOpen, setIsAuditModalOpen] = useState<boolean>(false);
 

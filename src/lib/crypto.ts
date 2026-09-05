@@ -4,12 +4,14 @@
  * Key Derivation: PBKDF2 (100,000 iterations, SHA-256) for passphrases
  */
 
-// Helper: ArrayBuffer to Base64
+// Helper: ArrayBuffer to Base64 (chunked to prevent stack overflow & UI freeze)
 export function bufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000; // 32768
   let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, Math.min(i + chunkSize, bytes.length));
+    binary += String.fromCharCode.apply(null, Array.from(chunk));
   }
   return btoa(binary);
 }
@@ -17,8 +19,9 @@ export function bufferToBase64(buffer: ArrayBuffer): string {
 // Helper: Base64 to ArrayBuffer
 export function base64ToBuffer(base64: string): ArrayBuffer {
   const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
     bytes[i] = binary.charCodeAt(i);
   }
   return bytes.buffer;

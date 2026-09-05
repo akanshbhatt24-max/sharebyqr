@@ -41,22 +41,11 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Navigation Tabs - Bento Pill Box */}
         <nav className="flex items-center gap-1 rounded-2xl border border-slate-800/90 bg-slate-900/90 p-1.5 shadow-inner backdrop-blur-md">
           <button
-            onClick={() => setActiveTab('scan')}
-            className={`flex items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs sm:text-sm font-semibold transition-all duration-200 ${
-              activeTab === 'scan'
-                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm shadow-cyan-500/20'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
-            }`}
-          >
-            <Scan className="h-4 w-4" />
-            <span>Scan QR</span>
-          </button>
-
-          <button
+            type="button"
             onClick={() => setActiveTab('generate')}
             className={`flex items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs sm:text-sm font-semibold transition-all duration-200 ${
               activeTab === 'generate'
-                ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-sm shadow-indigo-500/20'
+                ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm shadow-cyan-500/20'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
             }`}
           >
@@ -65,6 +54,20 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
 
           <button
+            type="button"
+            onClick={() => setActiveTab('scan')}
+            className={`flex items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs sm:text-sm font-semibold transition-all duration-200 ${
+              activeTab === 'scan'
+                ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 shadow-sm shadow-indigo-500/20'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+            }`}
+          >
+            <Scan className="h-4 w-4" />
+            <span>Scan QR</span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setActiveTab('vault')}
             className={`flex items-center gap-2 rounded-xl px-3.5 py-1.5 text-xs sm:text-sm font-semibold transition-all duration-200 ${
               activeTab === 'vault'
