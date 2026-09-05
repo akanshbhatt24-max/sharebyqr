@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Camera, Upload, Flashlight, RefreshCw, AlertCircle, CheckCircle2, ShieldCheck, Link2, Sparkles } from 'lucide-react';
-import { scanQRCodeFromImageData, scanQRCodeFromImageFile } from '../lib/qr';
+import { Camera, Upload, Flashlight, RefreshCw, AlertCircle, CheckCircle2, ShieldCheck, Link2, Sparkles, Zap } from 'lucide-react';
+import { scanQRCodeFromVideo, scanQRCodeFromImageData, scanQRCodeFromImageFile } from '../lib/qr';
 
 interface ScannerProps {
   onScanResult: (qrResultString: string) => void;
@@ -20,17 +20,38 @@ export const Scanner: React.FC<ScannerProps> = ({ onScanResult }) => {
   const [dragActive, setDragActive] = useState<boolean>(false);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const offscreenCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const isComponentMounted = useRef<boolean>(true);
   const activeStartRequestRef = useRef<number>(0);
+  const isScanningFrameRef = useRef<boolean>(false);
+  const lastScanTimestampRef = useRef<number>(0);
 
   const scanModeRef = useRef(scanMode);
   scanModeRef.current = scanMode;
 
   const onScanResultRef = useRef(onScanResult);
   onScanResultRef.current = onScanResult;
+
+  // Subtle audio chirp on successful scan
+  const playBeep = useCallback(() => {
+    try {
+      const ctxAudio = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+      const osc = ctxAudio.createOscillator();
+      const gain = ctxAudio.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 880; // A5
+      gain.gain.setValueAtTime(0.12, ctxAudio.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctxAudio.currentTime + 0.15);
+      osc.connect(gain);
+      gain.connect(ctxAudio.destination);
+      osc.start();
+      osc.stop(ctxAudio.currentTime + 0.15);
+    } catch {
+      // Audio context optional
+    }
+  }, []);
 
   // Stop camera media stream
   const stopCamera = useCallback(() => {
@@ -55,52 +76,48 @@ export const Scanner: React.FC<ScannerProps> = ({ onScanResult }) => {
     setTorchEnabled(false);
   }, []);
 
-  // Frame processing loop for QR detection
-  const tick = useCallback(() => {
+  // High-performance QR detection loop
+  const tick = useCallback(async () => {
     if (!isComponentMounted.current) return;
 
     const video = videoRef.current;
-    const canvas = canvasRef.current;
+    if (!offscreenCanvasRef.current) {
+      offscreenCanvasRef.current = document.createElement('canvas');
+    }
+    const canvas = offscreenCanvasRef.current;
 
-    if (video && video.readyState === video.HAVE_ENOUGH_DATA && canvas) {
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      if (ctx) {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const now = Date.now();
+    // Throttle scan to every 70ms to keep 60fps video rendering smooth and CPU low
+    if (
+      video &&
+      video.readyState >= 2 &&
+      video.videoWidth > 0 &&
+      video.videoHeight > 0 &&
+      !isScanningFrameRef.current &&
+      now - lastScanTimestampRef.current > 70
+    ) {
+      isScanningFrameRef.current = true;
+      lastScanTimestampRef.current = now;
 
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const code = scanQRCodeFromImageData(imageData);
-
-        if (code && code.data && code.data.trim().length > 0) {
-          // Play subtle audio indicator
-          try {
-            const ctxAudio = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-            const osc = ctxAudio.createOscillator();
-            const gain = ctxAudio.createGain();
-            osc.type = 'sine';
-            osc.frequency.value = 880; // A5
-            gain.gain.setValueAtTime(0.1, ctxAudio.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.001, ctxAudio.currentTime + 0.15);
-            osc.connect(gain);
-            gain.connect(ctxAudio.destination);
-            osc.start();
-            osc.stop(ctxAudio.currentTime + 0.15);
-          } catch {
-            // Audio context optional
-          }
-
+      try {
+        const qrCodeString = await scanQRCodeFromVideo(video, canvas);
+        if (qrCodeString && qrCodeString.trim().length > 0) {
+          playBeep();
           stopCamera();
-          onScanResultRef.current(code.data.trim());
+          onScanResultRef.current(qrCodeString.trim());
           return;
         }
+      } catch (err) {
+        console.warn('Frame QR scan error:', err);
+      } finally {
+        isScanningFrameRef.current = false;
       }
     }
 
     if (isComponentMounted.current && scanModeRef.current === 'camera') {
       animFrameRef.current = requestAnimationFrame(tick);
     }
-  }, [stopCamera]);
+  }, [stopCamera, playBeep]);
 
   // Start camera stream
   const startCamera = useCallback(
@@ -333,9 +350,6 @@ export const Scanner: React.FC<ScannerProps> = ({ onScanResult }) => {
         </div>
       </div>
 
-      {/* Hidden processing canvas */}
-      <canvas ref={canvasRef} className="hidden" />
-
       {/* Bento Grid Layout Section */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Main Interactive Scanner Bento Card (Spans 8 columns) */}
@@ -384,7 +398,7 @@ export const Scanner: React.FC<ScannerProps> = ({ onScanResult }) => {
                   {/* Restart Camera */}
                   <button
                     onClick={() => startCamera(selectedDeviceId)}
-                    className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-800 bg-slate-950 text-slate-400 hover:text-white transition"
+                    className="flex h-9 w-9 items-center justify-center rounded-xl border border-slate-800 bg-slate-950 text-slate-400 hover:text-white transition cursor-pointer"
                     title="Restart Viewfinder"
                   >
                     <RefreshCw className="h-4 w-4" />
@@ -400,7 +414,7 @@ export const Scanner: React.FC<ScannerProps> = ({ onScanResult }) => {
                     <p className="mb-4 text-xs text-slate-300 leading-relaxed">{cameraError}</p>
                     <button
                       onClick={() => startCamera()}
-                      className="rounded-xl bg-cyan-500 px-5 py-2.5 text-xs font-bold text-slate-950 hover:bg-cyan-400 transition shadow-lg shadow-cyan-500/20"
+                      className="rounded-xl bg-cyan-500 px-5 py-2.5 text-xs font-bold text-slate-950 hover:bg-cyan-400 transition shadow-lg shadow-cyan-500/20 cursor-pointer"
                     >
                       Grant Camera Access
                     </button>
@@ -461,7 +475,7 @@ export const Scanner: React.FC<ScannerProps> = ({ onScanResult }) => {
               </div>
 
               <h3 className="mb-1 text-lg font-bold text-white">Scan QR Image File</h3>
-              <p className="mb-6 max-w-sm text-xs text-slate-400 leading-relaxed">
+              <p className="mb-4 max-w-sm text-xs text-slate-400 leading-relaxed">
                 Drag & drop any QR screenshot, photo, or saved image file, or browse files from your device.
               </p>
 
@@ -478,6 +492,32 @@ export const Scanner: React.FC<ScannerProps> = ({ onScanResult }) => {
                   }}
                 />
               </label>
+
+              {/* Quick Sample Test Buttons */}
+              <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+                <span className="text-[11px] text-slate-500 font-medium">Quick Test:</span>
+                <button
+                  type="button"
+                  onClick={() => onScanResult('WIFI:S:Home_Network_5G;T:WPA;P:SuperSecretPass!;;')}
+                  className="rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-1 text-[11px] text-slate-300 hover:text-cyan-400 hover:border-cyan-500/40 transition cursor-pointer"
+                >
+                  📶 Wi-Fi Sample
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onScanResult('BEGIN:VCARD\nVERSION:3.0\nFN:Alex Mercer\nTEL;TYPE=CELL:+1234567890\nEMAIL:alex@example.com\nORG:Quantum Labs\nEND:VCARD')}
+                  className="rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-1 text-[11px] text-slate-300 hover:text-cyan-400 hover:border-cyan-500/40 transition cursor-pointer"
+                >
+                  👤 Contact Sample
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onScanResult('https://google.com')}
+                  className="rounded-xl border border-slate-800 bg-slate-950/80 px-3 py-1 text-[11px] text-slate-300 hover:text-cyan-400 hover:border-cyan-500/40 transition cursor-pointer"
+                >
+                  🔗 Link Sample
+                </button>
+              </div>
 
               {isScanningFile && (
                 <div className="mt-6 flex items-center gap-2 text-xs font-semibold text-cyan-400">
@@ -516,6 +556,24 @@ export const Scanner: React.FC<ScannerProps> = ({ onScanResult }) => {
                 className="w-full rounded-2xl border border-slate-800 bg-slate-950 p-4 text-xs text-slate-200 outline-none focus:border-cyan-500 font-mono transition"
               />
 
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[11px] text-slate-500 font-medium">Quick Fill:</span>
+                <button
+                  type="button"
+                  onClick={() => setManualInput('WIFI:S:Guest_Office_Wi-Fi;T:WPA;P:Welcome2026!;;')}
+                  className="rounded-xl border border-slate-800 bg-slate-950 px-2.5 py-1 text-[11px] text-slate-300 hover:text-cyan-400 transition cursor-pointer"
+                >
+                  📶 Wi-Fi Payload
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setManualInput('BEGIN:VCARD\nVERSION:3.0\nFN:Sarah Connor\nTEL:+1987654321\nEMAIL:sarah@tech.org\nEND:VCARD')}
+                  className="rounded-xl border border-slate-800 bg-slate-950 px-2.5 py-1 text-[11px] text-slate-300 hover:text-cyan-400 transition cursor-pointer"
+                >
+                  👤 Contact vCard
+                </button>
+              </div>
+
               <button
                 onClick={() => {
                   if (manualInput.trim()) {
@@ -523,7 +581,7 @@ export const Scanner: React.FC<ScannerProps> = ({ onScanResult }) => {
                   }
                 }}
                 disabled={!manualInput.trim()}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-cyan-500 py-3.5 text-xs font-extrabold text-slate-950 hover:bg-cyan-400 disabled:opacity-50 transition shadow-lg shadow-cyan-500/20"
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-cyan-500 py-3.5 text-xs font-extrabold text-slate-950 hover:bg-cyan-400 disabled:opacity-50 transition shadow-lg shadow-cyan-500/20 cursor-pointer"
               >
                 <CheckCircle2 className="h-4 w-4" />
                 Open & Decrypt Share

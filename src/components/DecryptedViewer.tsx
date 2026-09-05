@@ -185,14 +185,32 @@ export const DecryptedViewer: React.FC<DecryptedViewerProps> = ({
         }
 
         if (shareId) {
-          // Fetch encrypted blob from backend
-          const res = await fetch(`/api/shares/${shareId}`);
-          if (!res.ok) {
-            const errData = await res.json().catch(() => ({}));
-            throw new Error(errData.error || `Share payload expired or not found (${res.status})`);
+          // Fetch encrypted blob from backend or local client vault fallback
+          let blobData: any = null;
+          try {
+            const res = await fetch(`/api/shares/${shareId}`);
+            if (res.ok) {
+              blobData = await res.json();
+            }
+          } catch (fetchErr) {
+            console.warn('Network fetch error, trying local vault fallback:', fetchErr);
           }
 
-          const blobData = await res.json();
+          if (!blobData) {
+            const localSaved = localStorage.getItem(`share_${shareId}`);
+            if (localSaved) {
+              try {
+                blobData = JSON.parse(localSaved);
+              } catch (parseErr) {
+                console.error('Failed to parse local share:', parseErr);
+              }
+            }
+          }
+
+          if (!blobData) {
+            throw new Error('Share payload not found, expired, or server unavailable.');
+          }
+
           const { ciphertext, encryptionMeta, burnAfterReading, expiresAt, maxAccessCount, accessCount } = blobData;
 
           if (isMounted) {

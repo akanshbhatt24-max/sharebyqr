@@ -46,12 +46,38 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // CORS support for all incoming requests / preview iframes
+  app.use((_req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    if (_req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
+  // Body parsers with generous limits
   app.use(express.json({ limit: '100mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '100mb' }));
+
+  // Middleware to catch body parser JSON syntax or size errors
+  app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (err) {
+      console.error('Payload Parser Error:', err.message);
+      return res.status(err.status || 400).json({
+        error: err.type === 'entity.too.large' 
+          ? 'File or payload is too large. Please select a file under 15MB.' 
+          : err.message || 'Invalid payload data format.'
+      });
+    }
+    next();
+  });
 
   // Serve static files from public directory (e.g. Google Search Console HTML verification files)
   app.use(express.static(path.join(process.cwd(), 'public')));
 
-  // API Routes
+  // API Health Check
   app.get('/api/health', (_req, res) => {
     res.json({
       status: 'ok',
@@ -63,10 +89,11 @@ async function startServer() {
   // Create Encrypted Share Endpoint
   app.post('/api/shares', (req, res) => {
     try {
-      const { ciphertext, encryptionMeta, expiresAt, burnAfterReading, maxAccessCount } = req.body;
+      const { ciphertext, encryptionMeta, expiresAt, burnAfterReading, maxAccessCount } = req.body || {};
 
       if (!ciphertext || !encryptionMeta || !encryptionMeta.iv) {
-        return res.status(400).json({ error: 'Invalid encrypted payload parameters' });
+        console.warn('POST /api/shares missing required parameters');
+        return res.status(400).json({ error: 'Invalid encrypted payload parameters. Ciphertext and IV are required.' });
       }
 
       const id = generateShareId();
@@ -83,16 +110,16 @@ async function startServer() {
 
       sharesStore.set(id, newShare);
 
-      res.status(201).json({
+      return res.status(201).json({
         success: true,
         id,
         createdAt: newShare.createdAt,
         expiresAt: newShare.expiresAt,
         burnAfterReading: newShare.burnAfterReading,
       });
-    } catch (err) {
-      console.error('Error creating share:', err);
-      res.status(500).json({ error: 'Failed to save encrypted share' });
+    } catch (err: any) {
+      console.error('Error creating share in server vault:', err);
+      return res.status(500).json({ error: err.message || 'Server error while saving encrypted share' });
     }
   });
 

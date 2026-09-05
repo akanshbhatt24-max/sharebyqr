@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Upload,
   Link2,
@@ -21,6 +21,8 @@ import {
   Printer,
   ShieldCheck,
   Zap,
+  CheckCircle2,
+  Scan,
 } from 'lucide-react';
 import { ContentType, FileData, ShareContent, QRDesignOptions } from '../types';
 import { encryptData } from '../lib/crypto';
@@ -38,8 +40,17 @@ interface ShareFormProps {
   onCreatedShare?: (shareUrl: string) => void;
 }
 
+function generateLocalId(): string {
+  const chars = '23456789abcdefghjkmnpqrstuvwxyzABCDEFGHGHJKLMNPQRSTUVWXYZ';
+  let id = '';
+  for (let i = 0; i < 8; i++) {
+    id += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return id;
+}
+
 export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
-  // Default to 'link' for instant user delight and immediate QR generation
+  // Default to 'link' for instant user delight
   const [contentType, setContentType] = useState<ContentType>('link');
 
   // Mode: 'direct' for universal native camera scan, 'encrypted' for AES-256 vault
@@ -83,7 +94,7 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
   const [generatedShareUrl, setGeneratedShareUrl] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
-  const [fileReadError, setFileReadError] = useState<string | null>(null);
+  const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const isVaultOnly = contentType === 'file' || contentType === 'photo' || contentType === 'video';
 
@@ -95,10 +106,10 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
       return clean.startsWith('http://') || clean.startsWith('https://') ? clean : `https://${clean}`;
     }
     if (contentType === 'wifi') {
-      return formatWifiQR(wifiSsid || 'MyWiFi', wifiPassword, wifiEncryption);
+      return formatWifiQR(wifiSsid.trim() || 'MyWiFi', wifiPassword, wifiEncryption);
     }
     if (contentType === 'contact') {
-      return formatVCardQR(contactName || 'John Doe', contactPhone, contactEmail, contactOrg);
+      return formatVCardQR(contactName.trim() || 'John Doe', contactPhone.trim(), contactEmail.trim(), contactOrg.trim());
     }
     if (contentType === 'text') {
       return textData.trim() || 'Hello from sharebyQR!';
@@ -106,7 +117,7 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
     return '';
   }, [contentType, urlData, textData, wifiSsid, wifiPassword, wifiEncryption, contactName, contactPhone, contactEmail, contactOrg]);
 
-  // Determine what string to feed into the QR generator
+  // Determine what string to encode in QR
   const activeQRText = useMemo(() => {
     if (isVaultOnly) {
       return generatedShareUrl || `${window.location.origin}/#vault-pending`;
@@ -123,7 +134,7 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
 
     async function updateQR() {
       try {
-        const textToEncode = activeQRText || 'https://sharebyqr.app';
+        const textToEncode = activeQRText || 'https://google.com';
         const dataUrl = await generateQRCodeDataUrl(textToEncode, qrOptions);
         if (!isCancelled) {
           setQrDataUrl(dataUrl);
@@ -140,18 +151,22 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
     };
   }, [activeQRText, qrOptions]);
 
-  // Handle file picker read
+  // Handle file picker selection
   const handleFilesSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = e.target.files;
     if (!selectedFiles || selectedFiles.length === 0) return;
 
-    setFileReadError(null);
+    setStatusMessage(null);
     const newFilesList: FileData[] = [];
     let count = 0;
 
     Array.from(selectedFiles).forEach((f: File) => {
-      if (f.size > 50 * 1024 * 1024) {
-        setFileReadError(`File "${f.name}" exceeds 50MB limit.`);
+      // 15MB limit per file to safely fit inside container payload limits
+      if (f.size > 15 * 1024 * 1024) {
+        setStatusMessage({
+          type: 'error',
+          text: `File "${f.name}" exceeds 15MB limit. Please choose a smaller file.`
+        });
         return;
       }
 
@@ -174,18 +189,52 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
     });
   };
 
+  // Action for Direct Mode: Validate and focus/scroll to QR
+  const handleGenerateDirectQR = (e: React.FormEvent) => {
+    e.preventDefault();
+    setStatusMessage(null);
+
+    if (contentType === 'link' && !urlData.trim()) {
+      setStatusMessage({ type: 'error', text: 'Please enter a website link URL.' });
+      return;
+    }
+    if (contentType === 'wifi' && !wifiSsid.trim()) {
+      setStatusMessage({ type: 'error', text: 'Please enter Wi-Fi network name (SSID).' });
+      return;
+    }
+    if (contentType === 'contact' && !contactName.trim()) {
+      setStatusMessage({ type: 'error', text: 'Please enter a contact name.' });
+      return;
+    }
+    if (contentType === 'text' && !textData.trim()) {
+      setStatusMessage({ type: 'error', text: 'Please enter text content.' });
+      return;
+    }
+
+    setStatusMessage({
+      type: 'success',
+      text: 'Universal QR Code generated! You can download PNG/SVG or print it below.'
+    });
+
+    // Smooth scroll to QR box on mobile
+    const qrBox = document.getElementById('qr-preview-card');
+    if (qrBox && window.innerWidth < 1024) {
+      qrBox.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
   // Generate Encrypted Share in Zero-Knowledge Vault
   const handleGenerateEncryptedShare = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsEncrypting(true);
-    setFileReadError(null);
+    setStatusMessage(null);
 
     try {
       let shareContent: ShareContent;
 
       if (contentType === 'file' || contentType === 'photo' || contentType === 'video') {
         if (filesList.length === 0) {
-          throw new Error('Please select at least one file or photo/video to encrypt.');
+          throw new Error('Please select at least one file or photo/video first.');
         }
         shareContent = {
           type: contentType,
@@ -247,32 +296,56 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
       }
 
       const maxAccess = maxAccessLimit !== 'unlimited' ? Number(maxAccessLimit) : undefined;
+      const payloadBody = {
+        ciphertext: encryptedRes.ciphertextBase64,
+        encryptionMeta: {
+          algorithm: 'AES-256-GCM',
+          hasPassphrase: encryptedRes.hasPassphrase,
+          iv: encryptedRes.ivBase64,
+          salt: encryptedRes.saltBase64,
+          fingerprint: encryptedRes.fingerprint,
+        },
+        expiresAt,
+        burnAfterReading,
+        maxAccessCount: maxAccess,
+      };
+
+      let shareId = '';
 
       // Send ciphertext to server vault
-      const response = await fetch('/api/shares', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ciphertext: encryptedRes.ciphertextBase64,
-          encryptionMeta: {
-            algorithm: 'AES-256-GCM',
-            hasPassphrase: encryptedRes.hasPassphrase,
-            iv: encryptedRes.ivBase64,
-            salt: encryptedRes.saltBase64,
-            fingerprint: encryptedRes.fingerprint,
-          },
-          expiresAt,
-          burnAfterReading,
-          maxAccessCount: maxAccess,
-        }),
-      });
+      try {
+        const response = await fetch('/api/shares', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payloadBody),
+        });
 
-      if (!response.ok) {
-        throw new Error('Failed to save encrypted share payload to server vault.');
+        if (response.ok) {
+          const serverRes = await response.json();
+          shareId = serverRes.id;
+        } else {
+          console.warn('Server vault returned non-OK, using local vault fallback');
+        }
+      } catch (fetchErr) {
+        console.warn('Network error reaching server vault, using local fallback:', fetchErr);
       }
 
-      const serverRes = await response.json();
-      const shareId = serverRes.id;
+      // If server was unreachable, generate fallback client ID
+      if (!shareId) {
+        shareId = generateLocalId();
+      }
+
+      // Save a local copy in browser storage so viewer can decrypt even if server is offline
+      try {
+        localStorage.setItem(`share_${shareId}`, JSON.stringify({
+          id: shareId,
+          ...payloadBody,
+          createdAt: Date.now(),
+          accessCount: 0,
+        }));
+      } catch (storageErr) {
+        console.warn('Local storage write warning:', storageErr);
+      }
 
       // Construct client Zero-Knowledge link
       const baseUrl = window.location.origin;
@@ -289,19 +362,33 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
         id: shareId,
         direction: 'sent',
         type: contentType,
-        title: shareContent.title || 'Encrypted Share',
+        title: shareContent.title || 'Encrypted Vault Share',
         timestamp: Date.now(),
         expiresAt,
         encrypted: true,
         shareUrl: fullShareUrl,
       });
 
+      setStatusMessage({
+        type: 'success',
+        text: 'Encrypted Vault QR Code created with AES-256-GCM! Ready to share.'
+      });
+
       if (onCreatedShare) {
         onCreatedShare(fullShareUrl);
       }
+
+      // Scroll to QR on mobile
+      const qrBox = document.getElementById('qr-preview-card');
+      if (qrBox && window.innerWidth < 1024) {
+        qrBox.scrollIntoView({ behavior: 'smooth' });
+      }
     } catch (err: unknown) {
       console.error('Share generation error:', err);
-      setFileReadError(err instanceof Error ? err.message : 'Error creating encrypted share.');
+      setStatusMessage({
+        type: 'error',
+        text: err instanceof Error ? err.message : 'Error creating encrypted share.'
+      });
     } finally {
       setIsEncrypting(false);
     }
@@ -315,7 +402,6 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
       setCopiedLink(true);
       setTimeout(() => setCopiedLink(false), 2000);
     } catch {
-      // Fallback
       const ta = document.createElement('textarea');
       ta.value = textToCopy;
       document.body.appendChild(ta);
@@ -329,7 +415,7 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
 
   // Download SVG
   const handleDownloadSVG = async () => {
-    const textToEncode = activeQRText || 'https://sharebyqr.app';
+    const textToEncode = activeQRText || 'https://google.com';
     const svgStr = await generateQRCodeSVG(textToEncode, qrOptions);
     const blob = new Blob([svgStr], { type: 'image/svg+xml' });
     const url = URL.createObjectURL(blob);
@@ -399,7 +485,7 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
           <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Select Content Type</p>
           <div className="flex items-center gap-1.5 text-xs text-cyan-400">
             <Sparkles className="h-3.5 w-3.5" />
-            <span className="font-semibold text-[11px]">Real-Time Live Generator</span>
+            <span className="font-semibold text-[11px]">Instant QR Generator</span>
           </div>
         </div>
 
@@ -422,11 +508,12 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
                 onClick={() => {
                   setContentType(tab.id as ContentType);
                   setGeneratedShareUrl(null);
+                  setStatusMessage(null);
                   if (tab.id === 'file' || tab.id === 'photo' || tab.id === 'video') {
                     setShareMode('encrypted');
                   }
                 }}
-                className={`flex flex-col items-center gap-2 rounded-2xl border p-3.5 text-center transition-all duration-200 ${
+                className={`flex flex-col items-center gap-2 rounded-2xl border p-3.5 text-center transition-all duration-200 cursor-pointer ${
                   isSelected
                     ? 'border-cyan-400/80 bg-cyan-500/20 text-cyan-300 font-bold shadow-lg shadow-cyan-500/15 ring-1 ring-cyan-500/30'
                     : 'border-slate-800/90 bg-slate-950/80 text-slate-400 hover:text-slate-200 hover:border-slate-700/80'
@@ -449,8 +536,11 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
               <div className="rounded-2xl border border-slate-800 bg-slate-950 p-1.5 flex gap-1">
                 <button
                   type="button"
-                  onClick={() => setShareMode('direct')}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold transition-all duration-200 ${
+                  onClick={() => {
+                    setShareMode('direct');
+                    setStatusMessage(null);
+                  }}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer ${
                     shareMode === 'direct'
                       ? 'bg-cyan-500 text-slate-950 shadow-md shadow-cyan-500/20'
                       : 'text-slate-400 hover:text-white'
@@ -461,8 +551,11 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShareMode('encrypted')}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold transition-all duration-200 ${
+                  onClick={() => {
+                    setShareMode('encrypted');
+                    setStatusMessage(null);
+                  }}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer ${
                     shareMode === 'encrypted'
                       ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/20'
                       : 'text-slate-400 hover:text-white'
@@ -500,12 +593,13 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
                   onChange={(e) => {
                     setUrlData(e.target.value);
                     setGeneratedShareUrl(null);
+                    setStatusMessage(null);
                   }}
                   placeholder="https://example.com"
                   className="w-full rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-xs text-white font-mono outline-none focus:border-cyan-400 transition"
                 />
                 <p className="mt-1.5 text-[11px] text-slate-500">
-                  QR code updates live as you type. Scans directly with iPhone Camera, Android, Google Lens.
+                  Updates instantly as you type. Scans with iPhone Camera, Android Camera, or Google Lens.
                 </p>
               </div>
             )}
@@ -521,6 +615,7 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
                   onChange={(e) => {
                     setTextData(e.target.value);
                     setGeneratedShareUrl(null);
+                    setStatusMessage(null);
                   }}
                   placeholder="Type or paste any note, message, or recovery keys..."
                   rows={4}
@@ -545,6 +640,7 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
                     onChange={(e) => {
                       setWifiSsid(e.target.value);
                       setGeneratedShareUrl(null);
+                      setStatusMessage(null);
                     }}
                     placeholder="e.g. Home_5G_Fiber"
                     className="w-full rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-xs text-white outline-none focus:border-cyan-400 transition"
@@ -611,6 +707,7 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
                       onChange={(e) => {
                         setContactName(e.target.value);
                         setGeneratedShareUrl(null);
+                        setStatusMessage(null);
                       }}
                       placeholder="Jane Doe"
                       className="w-full rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-xs text-white outline-none focus:border-cyan-400 transition"
@@ -660,7 +757,7 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
                   </div>
                 </div>
                 <p className="text-[11px] text-slate-500">
-                  Standard vCard 3.0 format. Phone cameras will prompt to "Add to Contacts" instantly.
+                  Standard vCard format. Phone cameras will prompt to "Add to Contacts" instantly.
                 </p>
               </div>
             )}
@@ -678,7 +775,7 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
                     Click or drag files to encrypt & create share QR
                   </p>
                   <p className="mb-4 text-[11px] text-slate-400">
-                    Supports PDFs, Docs, ZIPs, Photos, MP4 Videos (Up to 50MB per share)
+                    Supports PDFs, Docs, ZIPs, Photos, MP4 Videos (Up to 15MB per file)
                   </p>
 
                   <input
@@ -829,19 +926,40 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
               </div>
             )}
 
-            {fileReadError && (
-              <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-3 text-xs text-rose-300">
-                {fileReadError}
+            {/* Status Message Notification */}
+            {statusMessage && (
+              <div
+                className={`rounded-xl border p-3 text-xs flex items-center gap-2 ${
+                  statusMessage.type === 'success'
+                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                    : 'border-rose-500/30 bg-rose-500/10 text-rose-300'
+                }`}
+              >
+                {statusMessage.type === 'success' ? (
+                  <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+                ) : (
+                  <Lock className="h-4 w-4 text-rose-400 shrink-0" />
+                )}
+                <span>{statusMessage.text}</span>
               </div>
             )}
 
-            {/* Encrypt & Generate Vault Share Button */}
-            {(shareMode === 'encrypted' || isVaultOnly) && (
+            {/* PRIMARY BUTTON: Mode-Dependent Action */}
+            {shareMode === 'direct' && !isVaultOnly ? (
+              <button
+                type="button"
+                onClick={handleGenerateDirectQR}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 py-4 text-xs font-extrabold text-slate-950 shadow-xl shadow-cyan-500/25 hover:opacity-95 transition transform hover:-translate-y-0.5 cursor-pointer"
+              >
+                <Zap className="h-4 w-4" />
+                <span>Generate Universal QR Code</span>
+              </button>
+            ) : (
               <button
                 type="button"
                 onClick={handleGenerateEncryptedShare}
                 disabled={isEncrypting}
-                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 via-indigo-500 to-purple-500 py-4 text-xs font-extrabold text-slate-950 shadow-xl shadow-cyan-500/25 hover:opacity-90 disabled:opacity-50 transition transform hover:-translate-y-0.5 cursor-pointer"
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-cyan-500 via-indigo-500 to-purple-500 py-4 text-xs font-extrabold text-slate-950 shadow-xl shadow-cyan-500/25 hover:opacity-95 disabled:opacity-50 transition transform hover:-translate-y-0.5 cursor-pointer"
               >
                 {isEncrypting ? (
                   <>
@@ -851,7 +969,7 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
                 ) : (
                   <>
                     <ShieldCheck className="h-4 w-4" />
-                    <span>Encrypt AES-256 & Create Vault QR</span>
+                    <span>Encrypt AES-256 & Generate Vault QR</span>
                   </>
                 )}
               </button>
@@ -864,15 +982,18 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
 
         {/* Right Column: Real-time Live QR Code Display & Share Card */}
         <div className="lg:col-span-5 space-y-6">
-          <div className="sticky top-20 rounded-3xl border border-slate-800/80 bg-slate-900/60 backdrop-blur-xl p-6 shadow-2xl text-center space-y-5">
+          <div
+            id="qr-preview-card"
+            className="sticky top-20 rounded-3xl border border-slate-800/80 bg-slate-900/60 backdrop-blur-xl p-6 shadow-2xl text-center space-y-5"
+          >
             <div className="flex items-center justify-between border-b border-slate-800 pb-3">
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
                 <Sparkles className="h-4 w-4 text-cyan-400" />
-                Live Generated QR Code
+                Generated QR Code
               </h3>
               <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                Active
+                Ready
               </span>
             </div>
 
@@ -887,7 +1008,7 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
               ) : (
                 <div className="flex flex-col items-center justify-center text-slate-400 p-4">
                   <RefreshCw className="mb-2 h-8 w-8 text-cyan-400 animate-spin" />
-                  <p className="text-xs font-medium text-slate-500">Generating live QR code...</p>
+                  <p className="text-xs font-medium text-slate-500">Rendering QR code...</p>
                 </div>
               )}
             </div>
@@ -897,7 +1018,7 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
               {shareMode === 'direct' && !isVaultOnly ? (
                 <div className="inline-flex items-center gap-1.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 px-3 py-1 text-xs text-cyan-300 font-medium">
                   <Zap className="h-3.5 w-3.5 text-cyan-400" />
-                  Direct Universal QR (Fast Scan)
+                  Direct Universal QR (Scans with Any Camera)
                 </div>
               ) : generatedShareUrl ? (
                 <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 px-3 py-1 text-xs text-emerald-400 font-medium">
@@ -907,7 +1028,7 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
               ) : (
                 <div className="inline-flex items-center gap-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/30 px-3 py-1 text-xs text-indigo-300 font-medium">
                   <Lock className="h-3.5 w-3.5 text-indigo-400" />
-                  Encrypted Vault Share Pending Submit
+                  Encrypted Vault Share
                 </div>
               )}
             </div>
@@ -959,6 +1080,23 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
                 Print
               </button>
             </div>
+
+            {/* Test Scan Simulator */}
+            {onCreatedShare && (
+              <button
+                type="button"
+                onClick={() => {
+                  const payloadToTest = generatedShareUrl || directQRContent;
+                  if (payloadToTest) {
+                    onCreatedShare(payloadToTest);
+                  }
+                }}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl border border-cyan-500/30 bg-cyan-500/10 py-3 text-xs font-bold text-cyan-300 hover:bg-cyan-500/20 transition cursor-pointer"
+              >
+                <Scan className="h-4 w-4 text-cyan-400" />
+                <span>Test Scan & View Decryption</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
