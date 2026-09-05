@@ -1,0 +1,10 @@
+{
+  "name": "sharebyQR",
+  "description": "Scan and generate QR codes to share encrypted files, photos, videos, text, and contacts with end-to-end AES-256 client-side encryption.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
