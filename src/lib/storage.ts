@@ -15,11 +15,38 @@ export function getHistory(): HistoryItem[] {
 export function saveHistoryItem(item: HistoryItem): void {
   try {
     const history = getHistory();
-    // Prepend new item
-    const updated = [item, ...history.filter((h) => h.id !== item.id)].slice(0, 50); // Keep last 50 items
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
+    
+    // Sanitize item shareUrl to remove massive inline ciphertexts if present, preventing localStorage quota overflow
+    let sanitizedUrl = item.shareUrl;
+    if (sanitizedUrl && sanitizedUrl.includes('#cipher=')) {
+      const parts = sanitizedUrl.split('#');
+      const baseUrl = parts[0];
+      const hashParams = new URLSearchParams(parts[1] || '');
+      const key = hashParams.get('key');
+      if (key) {
+        sanitizedUrl = `${baseUrl}#key=${key}`;
+      } else {
+        sanitizedUrl = baseUrl;
+      }
+    }
+
+    const sanitizedItem = {
+      ...item,
+      shareUrl: sanitizedUrl,
+    };
+
+    // Prepend new item, keeping only last 20 items
+    const updated = [sanitizedItem, ...history.filter((h) => h.id !== item.id)].slice(0, 20);
+    
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(updated));
+    } catch (quotaErr) {
+      // If quota exceeded, try saving with fewer items (last 5 items)
+      const minimal = updated.slice(0, 5);
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(minimal));
+    }
   } catch (err) {
-    console.error('Failed to save history item:', err);
+    console.warn('Failed to save history item:', err);
   }
 }
 

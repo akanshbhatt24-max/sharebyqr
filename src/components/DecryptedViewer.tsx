@@ -173,20 +173,42 @@ export const DecryptedViewer: React.FC<DecryptedViewerProps> = ({
         let inlineIv = '';
         let inlineSalt = '';
 
-        if (inputStr.includes('/share/') || inputStr.includes('#')) {
-          try {
-            const urlObj = new URL(inputStr);
-            const pathSegments = urlObj.pathname.split('/').filter(Boolean);
-            shareId = pathSegments[pathSegments.length - 1] || '';
+        try {
+          let candidateUrl = inputStr;
+          if (candidateUrl.startsWith('#')) {
+            candidateUrl = `${window.location.origin}/${candidateUrl}`;
+          } else if (candidateUrl.startsWith('/share/')) {
+            candidateUrl = `${window.location.origin}${candidateUrl}`;
+          } else if (candidateUrl.startsWith('share/')) {
+            candidateUrl = `${window.location.origin}/${candidateUrl}`;
+          } else if (!candidateUrl.includes('://') && candidateUrl.includes('#')) {
+            candidateUrl = `${window.location.origin}/${candidateUrl}`;
+          }
 
-            const hash = urlObj.hash.replace('#', '');
-            const searchParams = new URLSearchParams(hash);
-            keyFromHash = searchParams.get('key') || '';
-            inlineCipher = searchParams.get('cipher') || searchParams.get('ciphertext') || '';
-            inlineIv = searchParams.get('iv') || '';
-            inlineSalt = searchParams.get('salt') || '';
-          } catch {
-            // URL parse error
+          const urlObj = new URL(candidateUrl, window.location.origin);
+          const pathSegments = urlObj.pathname.split('/').filter(Boolean);
+          shareId = pathSegments[pathSegments.length - 1] || '';
+
+          const hash = urlObj.hash.replace('#', '');
+          const searchParams = new URLSearchParams(hash);
+          keyFromHash = searchParams.get('key') || '';
+          inlineCipher = searchParams.get('cipher') || searchParams.get('ciphertext') || '';
+          inlineIv = searchParams.get('iv') || '';
+          inlineSalt = searchParams.get('salt') || '';
+        } catch (parseErr) {
+          console.warn('URL parse fallback:', parseErr);
+          const hashIdx = inputStr.indexOf('#');
+          if (hashIdx !== -1) {
+            const hashPart = inputStr.substring(hashIdx + 1);
+            const sp = new URLSearchParams(hashPart);
+            keyFromHash = sp.get('key') || '';
+            inlineCipher = sp.get('cipher') || sp.get('ciphertext') || '';
+            inlineIv = sp.get('iv') || '';
+            inlineSalt = sp.get('salt') || '';
+          }
+          const matchShare = inputStr.match(/\/share\/([a-zA-Z0-9]+)/);
+          if (matchShare) {
+            shareId = matchShare[1];
           }
         }
 
@@ -198,7 +220,7 @@ export const DecryptedViewer: React.FC<DecryptedViewerProps> = ({
         let maxAccessCount = undefined;
         let accessCount = 0;
 
-        if (inlineCipher && inlineIv && keyFromHash) {
+        if (inlineCipher && inlineIv) {
           // Zero-server inline hash decryption (100% reliable across devices & offline)
           ciphertext = inlineCipher;
           iv = inlineIv;
@@ -226,12 +248,12 @@ export const DecryptedViewer: React.FC<DecryptedViewerProps> = ({
           }
 
           if (!blobData) {
-            throw new Error('Share payload not found, expired, or server unavailable.');
+            throw new Error('Share payload not found on server or local storage. Please ensure you are using the correct share link.');
           }
 
           ciphertext = blobData.ciphertext;
           iv = blobData.encryptionMeta.iv;
-          salt = blobData.encryptionMeta.salt;
+          salt = blobData.encryptionMeta.salt || salt;
           burnAfterReading = blobData.burnAfterReading;
           expiresAt = blobData.expiresAt;
           maxAccessCount = blobData.maxAccessCount;
@@ -248,7 +270,7 @@ export const DecryptedViewer: React.FC<DecryptedViewerProps> = ({
             return;
           }
         } else {
-          throw new Error('Invalid share URL or missing decryption key.');
+          throw new Error('Invalid share URL or missing decryption key fragment. Please rescan or copy the full link.');
         }
 
         if (isMounted) {
@@ -258,7 +280,7 @@ export const DecryptedViewer: React.FC<DecryptedViewerProps> = ({
         }
 
         if (!keyFromHash) {
-          throw new Error('Missing decryption key fragment in URL hash. Unable to decrypt Zero-Knowledge payload.');
+          throw new Error('Missing decryption key (#key=...) in share URL hash. Unable to decrypt Zero-Knowledge payload.');
         }
 
         const decryptedPayload = await decryptData<any>(

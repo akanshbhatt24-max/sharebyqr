@@ -138,9 +138,16 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
         const dataUrl = await generateQRCodeDataUrl(textToEncode, qrOptions);
         if (!isCancelled) {
           setQrDataUrl(dataUrl);
+          setStatusMessage(null);
         }
-      } catch (err) {
-        console.error('Real-time QR generation error:', err);
+      } catch (err: any) {
+        console.warn('Real-time QR generation error:', err);
+        if (!isCancelled && err?.message?.includes('too big')) {
+          setStatusMessage({
+            type: 'error',
+            text: 'The text or data is too large to fit in a single QR code. Please shorten your text or use Encrypted Vault share mode.'
+          });
+        }
       }
     }
 
@@ -347,12 +354,12 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
         console.warn('Local storage write warning:', storageErr);
       }
 
-      // Construct Zero-Knowledge link with inline fallback for 100% reliable zero-server cross-device scanning
+      // Construct Zero-Knowledge link (inline hash for short notes/links, or server vault key for larger files)
       const baseUrl = window.location.origin;
       let fullShareUrl = `${baseUrl}/share/${shareId}`;
 
       if (!encryptedRes.hasPassphrase && encryptedRes.rawKeyHex) {
-        if (encryptedRes.ciphertextBase64.length < 5000) {
+        if (encryptedRes.ciphertextBase64.length < 1500) {
           const cipherEnc = encodeURIComponent(encryptedRes.ciphertextBase64);
           const ivEnc = encodeURIComponent(encryptedRes.ivBase64);
           const saltEnc = encryptedRes.saltBase64 ? `&salt=${encodeURIComponent(encryptedRes.saltBase64)}` : '';
