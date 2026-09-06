@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 
 interface StoredEncryptedShare {
@@ -19,8 +20,41 @@ interface StoredEncryptedShare {
   accessCount: number;
 }
 
-// In-memory store for encrypted shares (Zero-Knowledge: server never holds keys or plain text)
-const sharesStore = new Map<string, StoredEncryptedShare>();
+const DATA_FILE = path.join(process.cwd(), 'shares.json');
+
+// Load existing shares from disk on startup
+function loadShares(): Map<string, StoredEncryptedShare> {
+  const map = new Map<string, StoredEncryptedShare>();
+  try {
+    if (fs.existsSync(DATA_FILE)) {
+      const raw = fs.readFileSync(DATA_FILE, 'utf-8');
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        const now = Date.now();
+        for (const item of arr) {
+          if (!item.expiresAt || now <= item.expiresAt) {
+            map.set(item.id, item);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to load shares from disk:', e);
+  }
+  return map;
+}
+
+// In-memory store backed by disk persistence
+const sharesStore = loadShares();
+
+function saveSharesToDisk() {
+  try {
+    const arr = Array.from(sharesStore.values());
+    fs.writeFileSync(DATA_FILE, JSON.stringify(arr), 'utf-8');
+  } catch (e) {
+    console.warn('Failed to save shares to disk:', e);
+  }
+}
 
 // Helper to generate short unique ID
 function generateShareId(): string {
@@ -35,10 +69,15 @@ function generateShareId(): string {
 // Periodic cleanup of expired shares (runs every 60s)
 setInterval(() => {
   const now = Date.now();
+  let changed = false;
   for (const [id, share] of sharesStore.entries()) {
     if (share.expiresAt && now > share.expiresAt) {
       sharesStore.delete(id);
+      changed = true;
     }
+  }
+  if (changed) {
+    saveSharesToDisk();
   }
 }, 60000);
 
@@ -109,6 +148,7 @@ async function startServer() {
       };
 
       sharesStore.set(id, newShare);
+      saveSharesToDisk();
 
       return res.status(201).json({
         success: true,

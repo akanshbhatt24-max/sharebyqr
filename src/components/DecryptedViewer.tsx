@@ -169,8 +169,11 @@ export const DecryptedViewer: React.FC<DecryptedViewerProps> = ({
         // 5. Encrypted App Share URL or direct share link
         let shareId = '';
         let keyFromHash = '';
+        let inlineCipher = '';
+        let inlineIv = '';
+        let inlineSalt = '';
 
-        if (inputStr.includes('/share/')) {
+        if (inputStr.includes('/share/') || inputStr.includes('#')) {
           try {
             const urlObj = new URL(inputStr);
             const pathSegments = urlObj.pathname.split('/').filter(Boolean);
@@ -179,12 +182,27 @@ export const DecryptedViewer: React.FC<DecryptedViewerProps> = ({
             const hash = urlObj.hash.replace('#', '');
             const searchParams = new URLSearchParams(hash);
             keyFromHash = searchParams.get('key') || '';
+            inlineCipher = searchParams.get('cipher') || searchParams.get('ciphertext') || '';
+            inlineIv = searchParams.get('iv') || '';
+            inlineSalt = searchParams.get('salt') || '';
           } catch {
             // URL parse error
           }
         }
 
-        if (shareId) {
+        let ciphertext = '';
+        let iv = '';
+        let salt: string | undefined = inlineSalt || undefined;
+        let burnAfterReading = false;
+        let expiresAt = null;
+        let maxAccessCount = undefined;
+        let accessCount = 0;
+
+        if (inlineCipher && inlineIv && keyFromHash) {
+          // Zero-server inline hash decryption (100% reliable across devices & offline)
+          ciphertext = inlineCipher;
+          iv = inlineIv;
+        } else if (shareId) {
           // Fetch encrypted blob from backend or local client vault fallback
           let blobData: any = null;
           try {
@@ -211,42 +229,59 @@ export const DecryptedViewer: React.FC<DecryptedViewerProps> = ({
             throw new Error('Share payload not found, expired, or server unavailable.');
           }
 
-          const { ciphertext, encryptionMeta, burnAfterReading, expiresAt, maxAccessCount, accessCount } = blobData;
+          ciphertext = blobData.ciphertext;
+          iv = blobData.encryptionMeta.iv;
+          salt = blobData.encryptionMeta.salt;
+          burnAfterReading = blobData.burnAfterReading;
+          expiresAt = blobData.expiresAt;
+          maxAccessCount = blobData.maxAccessCount;
+          accessCount = blobData.accessCount;
 
-          if (isMounted) {
-            setRawCiphertext(ciphertext);
-            setRawIv(encryptionMeta.iv);
-            setRawSalt(encryptionMeta.salt);
-          }
-
-          // Check if encryption requires passphrase
-          if (encryptionMeta.hasPassphrase) {
+          if (blobData.encryptionMeta.hasPassphrase) {
             if (isMounted) {
+              setRawCiphertext(ciphertext);
+              setRawIv(iv);
+              setRawSalt(salt);
               setRequiresPassphrase(true);
               setLoading(false);
             }
             return;
           }
+        } else {
+          throw new Error('Invalid share URL or missing decryption key.');
+        }
 
-          if (!keyFromHash) {
-            throw new Error('Missing decryption key fragment in URL hash. Unable to decrypt Zero-Knowledge payload.');
-          }
+        if (isMounted) {
+          setRawCiphertext(ciphertext);
+          setRawIv(iv);
+          setRawSalt(salt);
+        }
 
-          const decryptedPayload = await decryptData<any>(
-            ciphertext,
-            encryptionMeta.iv,
-            keyFromHash,
-            encryptionMeta.salt
-          );
+        if (!keyFromHash) {
+          throw new Error('Missing decryption key fragment in URL hash. Unable to decrypt Zero-Knowledge payload.');
+        }
+
+        const decryptedPayload = await decryptData<any>(
+          ciphertext,
+          iv,
+          keyFromHash,
+          salt
+        );
 
           const fp = await getKeyFingerprint(keyFromHash);
           const finalContent: ShareContent = decryptedPayload.content || decryptedPayload;
 
           if (isMounted) {
             setPayload({
-              id: shareId,
+              id: shareId || 'inline',
               ciphertext,
-              encryptionMeta,
+              encryptionMeta: {
+                algorithm: 'AES-256-GCM',
+                hasPassphrase: false,
+                iv,
+                salt,
+                fingerprint: fp,
+              },
               content: finalContent,
               createdAt: Date.now(),
               expiresAt,
@@ -260,7 +295,7 @@ export const DecryptedViewer: React.FC<DecryptedViewerProps> = ({
 
             // Record in local vault history as received item
             saveHistoryItem({
-              id: shareId,
+              id: shareId || 'inline',
               direction: 'received',
               type: finalContent.type || 'photo',
               title: finalContent.title || 'Decrypted Payload',
@@ -271,7 +306,6 @@ export const DecryptedViewer: React.FC<DecryptedViewerProps> = ({
             });
           }
           return;
-        }
 
         // 6. Direct Photo / Image Web URL
         const isImageUrl =

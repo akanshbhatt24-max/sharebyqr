@@ -347,12 +347,19 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
         console.warn('Local storage write warning:', storageErr);
       }
 
-      // Construct client Zero-Knowledge link
+      // Construct client Zero-Knowledge link with inline fallback for zero-server cross-device scanning
       const baseUrl = window.location.origin;
       let fullShareUrl = `${baseUrl}/share/${shareId}`;
 
       if (!encryptedRes.hasPassphrase && encryptedRes.rawKeyHex) {
-        fullShareUrl += `#key=${encryptedRes.rawKeyHex}`;
+        if (encryptedRes.ciphertextBase64.length < 3500) {
+          const cipherEnc = encodeURIComponent(encryptedRes.ciphertextBase64);
+          const ivEnc = encodeURIComponent(encryptedRes.ivBase64);
+          const saltEnc = encryptedRes.saltBase64 ? `&salt=${encodeURIComponent(encryptedRes.saltBase64)}` : '';
+          fullShareUrl = `${baseUrl}/share/${shareId}#cipher=${cipherEnc}&iv=${ivEnc}${saltEnc}&key=${encryptedRes.rawKeyHex}`;
+        } else {
+          fullShareUrl += `#key=${encryptedRes.rawKeyHex}`;
+        }
       }
 
       setGeneratedShareUrl(fullShareUrl);
