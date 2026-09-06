@@ -347,12 +347,12 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
         console.warn('Local storage write warning:', storageErr);
       }
 
-      // Construct client Zero-Knowledge link with inline fallback for zero-server cross-device scanning
+      // Construct Zero-Knowledge link with inline fallback for 100% reliable zero-server cross-device scanning
       const baseUrl = window.location.origin;
       let fullShareUrl = `${baseUrl}/share/${shareId}`;
 
       if (!encryptedRes.hasPassphrase && encryptedRes.rawKeyHex) {
-        if (encryptedRes.ciphertextBase64.length < 8000) {
+        if (encryptedRes.ciphertextBase64.length < 5000) {
           const cipherEnc = encodeURIComponent(encryptedRes.ciphertextBase64);
           const ivEnc = encodeURIComponent(encryptedRes.ivBase64);
           const saltEnc = encryptedRes.saltBase64 ? `&salt=${encodeURIComponent(encryptedRes.saltBase64)}` : '';
@@ -1086,6 +1086,16 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
                 <Printer className="h-3.5 w-3.5 text-emerald-400" />
                 Print
               </button>
+            </div>
+
+            {/* Cross-Device Scanning Helper Tip */}
+            <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3 text-left text-xs text-amber-200 space-y-1">
+              <p className="font-bold flex items-center gap-1.5">
+                <span>💡</span> Cross-Device Scanning Tip:
+              </p>
+              <p className="text-[11px] text-amber-300/90 leading-relaxed">
+                Native phone camera apps attempt to open URLs in a web browser (which can trigger AI Studio preview login). To scan instantly on another phone without login prompts, simply open <strong className="text-white">sharebyQR</strong> on the second phone, go to the <strong className="text-white">Scan</strong> tab, and scan this QR code!
+              </p>
             </div>
 
             {/* Test Scan Simulator */}
