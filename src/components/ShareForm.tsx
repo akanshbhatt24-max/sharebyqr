@@ -352,7 +352,7 @@ export const ShareForm: React.FC<ShareFormProps> = ({ onCreatedShare }) => {
       let fullShareUrl = `${baseUrl}/share/${shareId}`;
 
       if (!encryptedRes.hasPassphrase && encryptedRes.rawKeyHex) {
-        if (encryptedRes.ciphertextBase64.length < 3500) {
+        if (encryptedRes.ciphertextBase64.length < 8000) {
           const cipherEnc = encodeURIComponent(encryptedRes.ciphertextBase64);
           const ivEnc = encodeURIComponent(encryptedRes.ivBase64);
           const saltEnc = encryptedRes.saltBase64 ? `&salt=${encodeURIComponent(encryptedRes.saltBase64)}` : '';
